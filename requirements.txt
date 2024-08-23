@@ -1,1 +1,6 @@
+google.generativeai
+openpyxl
+chardet
+lxml_html_clean
+requests
 git+https://github.com/svoi-fr/trafilatura.git
