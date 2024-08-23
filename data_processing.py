@@ -34,8 +34,16 @@ def send_to_llm_with_validation(original_text):
     initial_contacts = None
 
     for attempt in range(MAX_TRIES):
-        response = chat_session.send_message(original_text)
-        response_json = json.loads(response.text)
+        try:
+            response = chat_session.send_message(original_text)
+        except Exception as e:
+            print(f"Attempt {attempt + 1}: Failed to send message to LLM.")
+            continue
+        try:
+            response_json = json.loads(response.text)
+        except json.JSONDecodeError as e:
+            print(f"Attempt {attempt + 1}: Failed to decode JSON response from LLM.")
+            return None
 
         if attempt == 0:
             initial_organizations = response_json.get("Organization", [])
