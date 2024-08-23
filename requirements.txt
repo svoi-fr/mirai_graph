@@ -6,3 +6,4 @@ requests
 git+https://github.com/svoi-fr/trafilatura.git
 neo4j
 FlagEmbedding
+peft
