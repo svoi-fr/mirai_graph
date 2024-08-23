@@ -1,7 +1,7 @@
 import requests
 from xml.etree import ElementTree as ET
 from data_processing import process_url
-from utils import append_to_excel, generate_jsonl_from_excel, load_processed_urls
+from utils import append_to_excel, generate_jsonl_from_excel, load_processed_urls, cleanup_excel
 import random
 
 # URLs of the sitemaps
@@ -22,6 +22,7 @@ def main():
     processed_urls = load_processed_urls()
 
     # Generate JSONL from Excel on startup
+    cleanup_excel(EXCEL_FILE_PATH)
     generate_jsonl_from_excel(EXCEL_FILE_PATH, JSONL_FILE_PATH)
 
     for sitemap_url in sitemap_urls:

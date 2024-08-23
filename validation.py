@@ -77,7 +77,7 @@ def validate_and_prune_json(data):
 
     for provision in data.get("Provision", []):
         if not provision.get("organizations"):
-            errors.append(f"Provision node {provision['id']} must be linked to at least one Organization node - remove Provision or add Organization.")
+            errors.append(f"Provision node {provision['id']} must be linked to at least one Organization node - convert to Task node if it can't be linked, or link to an Organization that provides it")
         if not provision.get("contexts"):
             errors.append(f"Provision node {provision['id']} must be linked to at least one Context node.")
 

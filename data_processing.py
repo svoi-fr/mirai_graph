@@ -93,8 +93,8 @@ def send_to_llm_with_validation(original_text):
             original_text = trim_instruction + "\n" + compacted_json
             continue
 
-        cleaned_json["Organization"] = initial_organizations
-        cleaned_json["Contact"] = initial_contacts
+       # cleaned_json["Organization"] = initial_organizations
+       # cleaned_json["Contact"] = initial_contacts
         return json.dumps(cleaned_json, separators=(',', ':')) 
 
     print(f"Failed to produce valid output after {MAX_TRIES} attempts.")

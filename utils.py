@@ -4,6 +4,7 @@ import random
 
 EXCEL_FILE_PATH = "output.xlsx"
 PROCESSED_URLS_SHEET = "Processed URLs"
+OUTPUT_MAX_CHARACTERS=5000
 
 def append_to_excel(url, original_text, response, excel_file_path=EXCEL_FILE_PATH):
     try:
@@ -93,3 +94,22 @@ def generate_jsonl_from_excel(excel_file_path, jsonl_file_path, mistral_training
         for item in validation_data:
             f.write(json.dumps(item, ensure_ascii=False) + "\n")
     print(f"Mistral validation JSONL file generated from {excel_file_path} to {mistral_validation_path}")
+
+def cleanup_excel(excel_file_path=EXCEL_FILE_PATH):
+    """Removes entries from the Excel file that exceed the output character limit."""
+    wb = openpyxl.load_workbook(excel_file_path)
+    ws_data = wb["LLM Responses"]
+
+    rows_to_delete = []
+    for row_index, row in enumerate(ws_data.iter_rows(min_row=2), start=2): # Start from row 2 (skip header)
+        url, original_text, response = row
+        if len(response.value) > OUTPUT_MAX_CHARACTERS:
+            print(f"Removing row {row_index} from Excel: Output exceeds character limit.")
+            rows_to_delete.append(row_index)
+
+    # Delete rows in reverse order to avoid index shifting
+    for row_index in reversed(rows_to_delete):
+        ws_data.delete_rows(row_index)
+
+    wb.save(excel_file_path)
+    print(f"Excel file cleaned up: Entries exceeding {OUTPUT_MAX_CHARACTERS} characters removed.")
