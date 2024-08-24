@@ -58,7 +58,7 @@ def validate_and_prune_json(data):
     referenced_context_ids = get_referenced_context_ids(data.get("Provision", [])) | get_referenced_context_ids(data.get("Task", []))
     for context in data.get("Context", []):
         if context["id"] not in referenced_context_ids:
-            errors.append(f"Context node {context['id']} is not referenced by any other node.")
+            errors.append(f"Context node {context['id']} is not referenced by any other node - link existing Task or Provision to it, create Task or Provision or delete Context.")
 
     referenced_organization_ids = get_referenced_organization_ids(data.get("Provision", []))
     for organization in data.get("Organization", []):
