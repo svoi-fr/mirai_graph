@@ -8,6 +8,7 @@ import os
 EXCEL_FILE_PATH = "output.xlsx"
 NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://localhost:7687")  # Get from environment or default
 NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD")  # Get from environment
+NEO4J_USER = "neo4j"
 BATCH_SIZE = 100  # Adjust the batch size as needed
 
 # Initialize the BAAI BGE M3 embedding model
