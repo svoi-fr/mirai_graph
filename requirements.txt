@@ -1,4 +1,5 @@
 google.generativeai
+mistralai
 openpyxl
 chardet
 lxml_html_clean

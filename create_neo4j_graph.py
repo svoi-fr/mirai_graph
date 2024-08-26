@@ -2,21 +2,19 @@ from neo4j import GraphDatabase
 import openpyxl
 import json
 from FlagEmbedding import BGEM3FlagModel
-
 import os
 
 EXCEL_FILE_PATH = "output.xlsx"
 NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://localhost:7687")  # Get from environment or default
+NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")  # Get from environment
 NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD")  # Get from environment
-NEO4J_USER = "neo4j"
 BATCH_SIZE = 100  # Adjust the batch size as needed
 
 # Initialize the BAAI BGE M3 embedding model
 model = BGEM3FlagModel('BAAI/bge-m3', use_fp16=True)
 
-def create_neo4j_nodes_and_relationships(excel_file_path, neo4j_uri, neo4j_user, neo4j_password):
-    """Creates Neo4j nodes, relationships, and embeddings from Excel data."""
-
+def create_neo4j_nodes(excel_file_path, neo4j_uri, neo4j_user, neo4j_password):
+    """Creates Neo4j nodes from Excel data without relationships."""
     driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
     wb = openpyxl.load_workbook(excel_file_path)
     ws_data = wb["LLM Responses"]
@@ -29,34 +27,32 @@ def create_neo4j_nodes_and_relationships(excel_file_path, neo4j_uri, neo4j_user,
 
             # --- Create Document node and embedding ---
             summary = response_json["Summary"]
-            document_embedding = model.encode(summary.get("description", ""))
+            document_embedding = model.encode([summary.get("info", "")], max_length=8192)['dense_vecs'][0].tolist()
             session.run(
                 """
                 MERGE (d:Document {id: $summary_id})
                 SET d.country = $country,
-                    d.description = $description,
+                    d.info = $description,
                     d.type = $type,
                     d.url = $url,
                     d.embedding = $embedding
                 """,
                 summary_id=summary["id"],
-                country=summary["country"],
-                description=summary.get("description", ""),
+                country=summary.get("country", ""),
+                description=summary.get("info", ""),
                 type=summary["type"],
                 url=url,
-                embedding=list(document_embedding)
+                embedding=document_embedding
             )
 
-            # --- Create other nodes and relationships in batches ---
+            # --- Create nodes without relationships ---
             for node_type in ["Context", "Provision", "Task", "Organization", "Contact"]:
                 nodes = response_json.get(node_type, [])
-                for i in range(0, len(nodes), BATCH_SIZE):
-                    batch_nodes = nodes[i:i + BATCH_SIZE]
-                    info_texts = [node.get("info", "") for node in batch_nodes]
-                    embeddings = model.encode(info_texts)
-
-                    # Create nodes and relationships in batch
-                    for node, embedding in zip(batch_nodes, embeddings):
+                if nodes:
+                    info_texts = [node.get("info", "") for node in nodes]
+                    embeddings = model.encode(info_texts, max_length=8192)['dense_vecs']
+                    
+                    for node, embedding in zip(nodes, embeddings):
                         node_id = node["id"]
                         node_label = node_type
 
@@ -85,24 +81,94 @@ def create_neo4j_nodes_and_relationships(excel_file_path, neo4j_uri, neo4j_user,
                             address=node.get("address", ""),
                             city=node.get("city", ""),
                             cities=node.get("cities", []),
-                            embedding=list(embedding)
+                            embedding=embedding.tolist()
                         )
 
-                        # --- Create relationships (same as before) ---
-                        for ref_type in ["contexts", "provision", "organizations", "contacts"]:
-                            for ref_id in node.get(ref_type, []):
-                                ref_label = ref_type[:-1].capitalize()
-                                session.run(
-                                    f"""
-                                    MATCH (source:{node_label} {{id: $node_id}}), (target:{ref_label} {{id: $ref_id}})
-                                    MERGE (source)-[:HAS_{ref_label.upper()}]->(target)
-                                    """,
-                                    node_id=node_id,
-                                    ref_id=ref_id
-                                )
+                        # --- Connect node to the document ---
+                        session.run(
+                            """
+                            MATCH (n {id: $node_id}), (d:Document {id: $summary_id})
+                            MERGE (d)-[:DESCRIBE]->(n)
+                            """,
+                            node_id=node_id,
+                            summary_id=summary["id"]
+                        )
 
     driver.close()
-    print("Neo4j nodes, relationships, and embeddings created successfully!")
+    print("Neo4j nodes created successfully!")
+
+def create_neo4j_relationships(excel_file_path, neo4j_uri, neo4j_user, neo4j_password):
+    """Creates relationships between existing Neo4j nodes based on Excel data."""
+    driver = GraphDatabase.driver(neo4j_uri, auth=(neo4j_user, neo4j_password))
+    wb = openpyxl.load_workbook(excel_file_path)
+    ws_data = wb["LLM Responses"]
+
+    with driver.session() as session:
+        for row in ws_data.iter_rows(min_row=2):  # Skip header row
+            _, _, response_cell = row
+            response_json = json.loads(response_cell.value)
+
+            # --- Create relationships between nodes ---
+            for node_type in ["Context", "Provision", "Task", "Organization", "Contact"]:
+                nodes = response_json.get(node_type, [])
+                for node in nodes:
+                    node_id = node["id"]
+                    node_label = node_type
+
+                    # --- Create customized relationships ---
+                    if node_label == "Task":
+                        # Tasks APPLY to Contexts
+                        for ref_id in node.get("contexts", []):
+                            session.run(
+                                """
+                                MATCH (task:Task {id: $node_id}), (context:Context {id: $ref_id})
+                                MERGE (task)-[:APPLY]->(context)
+                                """,
+                                node_id=node_id,
+                                ref_id=ref_id
+                            )
+
+                    if node_label == "Provision":
+                        # Provisions ADDRESS Contexts
+                        for ref_id in node.get("contexts", []):
+                            session.run(
+                                """
+                                MATCH (provision:Provision {id: $node_id}), (context:Context {id: $ref_id})
+                                MERGE (provision)-[:ADDRESS]->(context)
+                                """,
+                                node_id=node_id,
+                                ref_id=ref_id
+                            )
+                        
+                        # Organizations PROVIDE Provisions
+                        for ref_id in node.get("organizations", []):
+                            session.run(
+                                """
+                                MATCH (provision:Provision {id: $node_id}), (org:Organization {id: $ref_id})
+                                MERGE (org)-[:PROVIDES]->(provision)
+                                """,
+                                node_id=node_id,
+                                ref_id=ref_id
+                            )
+
+                    if node_label == "Organization":
+                        # Organizations CONTACT Contacts
+                        for ref_id in node.get("contacts", []):
+                            session.run(
+                                """
+                                MATCH (org:Organization {id: $node_id}), (contact:Contact {id: $ref_id})
+                                MERGE (org)-[:CONTACT]->(contact)
+                                """,
+                                node_id=node_id,
+                                ref_id=ref_id
+                            )
+
+    driver.close()
+    print("Neo4j relationships created successfully!")
 
 if __name__ == "__main__":
-    create_neo4j_nodes_and_relationships(EXCEL_FILE_PATH, NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
+    # Phase 1: Create all nodes
+    create_neo4j_nodes(EXCEL_FILE_PATH, NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
+    
+    # Phase 2: Create relationships between nodes
+    create_neo4j_relationships(EXCEL_FILE_PATH, NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)

@@ -7,7 +7,7 @@ INPUT_MAX_CHARACTERS = 10000
 OUTPUT_MAX_CHARACTERS = 5000
 MAX_TRIES = 5
 
-def process_url(url):
+def process_url_gemini(url):
     downloaded = trafilatura.fetch_url(url)
     if not downloaded:
         return None, None
@@ -28,6 +28,30 @@ def process_url(url):
     response_text = send_to_llm_with_validation(original_text)
 
     return original_text, response_text
+
+def process_url_mistral(url):
+    downloaded = trafilatura.fetch_url(url)
+    if not downloaded:
+        return None, None
+
+    doc = trafilatura.extract(downloaded, include_links=True, include_contacts=True,
+                              include_formatting=True, with_metadata=True,
+                              output_format='json')
+
+    if not doc:
+        return None, None
+
+    obj = json.loads(doc)
+
+    if "text" not in obj:
+        return None, None
+
+    original_text = obj["text"]
+    response_text = send_to_llm_with_validation(original_text)
+
+    return original_text, response_text
+
+
 
 def send_to_llm_with_validation(original_text):
     initial_organizations = None
