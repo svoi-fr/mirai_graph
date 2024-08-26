@@ -226,7 +226,7 @@ with open(input_file, 'r') as infile, open(output_file, 'w') as outfile:
                 append_city_to_contact_id(content)
                 add_contact_cities_to_organization(content)
                 merge_contacts_within_organization(content)
-                message["content"] = json.dumps(content, ensure_ascii=False)
+                message["content"] = "```json\n" + json.dumps(content, indent=2, ensure_ascii=False) + "\n```"
         json.dump(json_obj, outfile, ensure_ascii=False)
         outfile.write('\n')
 
