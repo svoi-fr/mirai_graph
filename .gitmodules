@@ -1,0 +1,3 @@
+[submodule "clean/mistral-finetune"]
+	path = clean/mistral-finetune
+	url = https://github.com/mistralai/mistral-finetune.git
