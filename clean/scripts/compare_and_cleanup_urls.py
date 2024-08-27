@@ -42,6 +42,8 @@ def is_top_level_url(url):
     return not parsed_url.path or parsed_url.path == '/'
 
 def compare_and_cleanup_urls(content):
+    if not content:
+        return
     # Load cached valid URLs
     valid_urls = load_valid_urls()
 

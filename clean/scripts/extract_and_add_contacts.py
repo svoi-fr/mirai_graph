@@ -1,6 +1,7 @@
 import re
 import json
 from collections import defaultdict
+from .remove_organizations_and_cleanup import remove_organizations_and_cleanup
 
 def extract_addresses_from_text(text):
     # Regex to specifically capture addresses following "#### Address" format with Marseille
@@ -18,7 +19,8 @@ def extract_addresses_from_text(text):
     cleaned_addresses = [re.sub(r'\s+', ' ', address).strip() for address in all_addresses]
     
     # Debug print to see what addresses were captured
-    print("Captured addresses:", cleaned_addresses)
+    if cleaned_addresses:
+        print("Captured addresses:", cleaned_addresses)
     return cleaned_addresses
 
 def extract_phone_numbers_from_text(text):
@@ -54,74 +56,99 @@ def extract_city_from_address(address):
         return match.group(1).strip()
     return None
 
-def add_contacts_to_assistant_message(json_obj):
-    for message in json_obj['messages']:
-        if message['role'] == 'user':
-            user_text = message['content']
-            addresses = extract_addresses_from_text(user_text)
-            phone_numbers = extract_phone_numbers_from_text(user_text)
-            emails = extract_emails_from_text(user_text)
-            
-            if addresses:
-                for assistant_message in json_obj['messages']:
-                    if assistant_message['role'] == 'assistant':
-                        content = json.loads(assistant_message['content'])
-                        if 'Organization' in content:
-                            for org in content['Organization']:
-                                org_id = org['id']
-                                contact_list = content.get('Contact', [])
-                                city_contact_count = defaultdict(int)
-                                existing_contacts = {contact['city']: contact for contact in contact_list if contact.get('city')}
+def add_contacts_to_assistant_message(user_message, content):
+    if not content:
+        return None
+    user_text = user_message['content']
+    addresses = extract_addresses_from_text(user_text)
+    phone_numbers = extract_phone_numbers_from_text(user_text)
+    emails = extract_emails_from_text(user_text)
+    
+    if addresses:
+        if 'Organization' in content:
+            contact_list = content.get('Contact', [])
+            for org in content['Organization']:
+                org_id = org['id']
+                city_contact_count = defaultdict(int)
+                existing_contacts = {contact['city']: contact for contact in contact_list if contact.get('city')}
+                print(contact_list)
+                print(existing_contacts)
 
-                                for i, address in enumerate(addresses):
-                                    city = extract_city_from_address(address)
-                                    if not city:
-                                        print(f"Could not extract a valid city from address: {address}")
-                                        continue
+                filled_new = False
+                for i, address in enumerate(addresses):
+                    city = extract_city_from_address(address)
+                    if not city:
+                        print(f"Could not extract a valid city from address: {address}")
+                        continue
 
-                                    if 'cities' not in org:
-                                        org['cities'] = [city]
-                                    elif city not in org['cities']:
-                                        org['cities'].append(city)
+                    if 'cities' not in org:
+                        org['cities'] = [city]
+                    elif city not in org['cities']:
+                        org['cities'].append(city)
 
-                                    # Count how many contacts exist for this city
-                                    city_contact_count[city] += 1
+                    # Count how many contacts exist for this city
+                    city_contact_count[city] += 1
+                    print(existing_contacts)
+                    contact = None
+                    if not filled_new:
+                        if len(contact_list) == 1:
+                            contact = contact_list[0]
+                        elif city in existing_contacts:
+                            contact = existing_contacts[city]
+                        else:
+                            city_normalized = normalize_city_name(city)
+                            for norm_contact in contact_list:
+                                if norm_contact['id'].endswith(city_normalized):
+                                    contact = norm_contact
+                                    break
 
-                                    # Update existing contact for the city if it exists and doesn't have an address
-                                    if city in existing_contacts and not existing_contacts[city].get('address'):
-                                        contact = existing_contacts[city]
-                                        contact['address'] = address
-                                        if not contact.get('phone') and phone_numbers:
-                                            contact['phone'] = phone_numbers[i] if i < len(phone_numbers) else None
-                                        if not contact.get('email') and emails:
-                                            contact['email'] = emails[i] if i < len(emails) else None
-                                        print(f"Updated existing contact ID '{contact['id']}' with address '{address}'")
-                                    else:
-                                        # No existing contact for this city or existing contact already has an address, create a new contact node
-                                        contact_id = generate_contact_id(org_id, city, city_contact_count[city])
-                                        contact_node = {
-                                            'id': contact_id,
-                                            'address': address,
-                                            'city': city,
-                                            'phone': phone_numbers[i] if i < len(phone_numbers) else None,
-                                            'email': emails[i] if i < len(emails) else None,
-                                            'contact_page': None
-                                        }
-                                        contact_list.append(contact_node)
-                                        print(f"Added new contact ID '{contact_id}' with address '{address}' to organization ID '{org_id}'")
-                                
-                                content['Contact'] = contact_list
+                        
 
-                                # Optional: Assign phone and email to existing contacts if they are still missing
-                                # Only if there is one organization and one contact
-                                if len(contact_list) == 1 and len(content['Organization']) == 1:
-                                    contact = contact_list[0]
-                                    if not contact.get('phone') and phone_numbers:
-                                        contact['phone'] = phone_numbers[0]
-                                    if not contact.get('email') and emails:
-                                        contact['email'] = emails[0]
+                    # Update existing contact for the city if it exists and doesn't have an address
+                    if contact:
+                        if not contact.get('address'):
+                            contact['address'] = address
+                        if not contact.get('city'):
+                            contact['city'] = city
+                        if not contact.get('phone') and phone_numbers:
+                            contact['phone'] = phone_numbers[i] if i < len(phone_numbers) else None
+                        if not contact.get('email') and emails:
+                            contact['email'] = emails[i] if i < len(emails) else None
+                        print(f"Updated existing contact ID '{contact['id']}' with address '{address}'")
+                    else:
+                        if address not in [contact.get('address') for contact in contact_list]:
+                            # No existing contact for this city or existing contact already has an address, create a new contact node
+                            contact_id = generate_contact_id(org_id, city, city_contact_count[city])
+                            contact_node = {
+                                'id': contact_id,
+                                'address': address,
+                                'city': city,
+                                'phone': phone_numbers[i] if i < len(phone_numbers) else None,
+                                'email': emails[i] if i < len(emails) else None,
+                                'contact_page': None
+                            }
+                            contact_list.append(contact_node)
+                            print(f"Added new contact ID '{contact_id}' with address '{address}' to organization ID '{org_id}'")
+                            filled_new = True
+                
+                content['Contact'] = contact_list
 
-                        # Update the assistant message with the modified content
-                        assistant_message['content'] = json.dumps(content, ensure_ascii=False)
-                        break
-    return json_obj
+
+                # Optional: Assign phone and email to existing contacts if they are still missing
+                # Only if there is one organization and one contact
+                if len(contact_list) == 1 and len(content['Organization']) == 1:
+                    contact = contact_list[0]
+                    if not contact.get('phone') and phone_numbers:
+                        contact['phone'] = phone_numbers[0]
+                    if not contact.get('email') and emails:
+                        contact['email'] = emails[0]
+                id_list = set()
+                
+                for contact in contact_list:
+                    if contact['id'] in id_list:
+                        contact_list.remove(contact)
+                    id_list.add(contact['id'])
+
+        # Update the assistant message with the modified content
+        return content
+    return content 
